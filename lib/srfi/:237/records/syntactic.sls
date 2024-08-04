@@ -34,6 +34,7 @@
 	  opaque
 	  nongenerative
           generative
+          applicable
 	  parent-rtd
 	  record-type-descriptor
 	  record-constructor-descriptor)

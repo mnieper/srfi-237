@@ -35,6 +35,7 @@
 	  nongenerative
           generative
 	  parent-rtd
+          applicable
 	  record-type-descriptor
 	  record-constructor-descriptor
 	  make-record-type-descriptor
@@ -153,6 +154,10 @@
       (hashtable-ref *rtd-table* uid #f)))
 
   (define-syntax generative
+    (lambda (stx)
+      (syntax-violation 'generative "invalid use of auxiliary syntax" stx)))
+
+  (define-syntax applicable
     (lambda (stx)
       (syntax-violation 'generative "invalid use of auxiliary syntax" stx)))
 

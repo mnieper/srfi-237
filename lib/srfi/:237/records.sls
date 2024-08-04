@@ -389,32 +389,51 @@
 	    [_
 	     (syntax-violation who "invalid name spec" stx spec)])))
       (lambda (lookup)
+        (define applicand #f)
 	(define update-record-clauses
 	  (lambda (k prefix clauses)
 	    (define update-field-spec
 	      (lambda (field-spec)
-		(syntax-case field-spec (immutable mutable)
-		  [(immutable field-name)
-		   (identifier? #'field-name)
-		   (let ([name (symbol->string (syntax->datum #'field-name))])
-		     (with-syntax ([accessor-name
-				    (datum->syntax k (string->symbol (string-append prefix name)))])
-		       #'(immutable field-name accessor-name)))]
-		  [(mutable field-name)
-		   (identifier? #'field-name)
-		   (let ([name (symbol->string (syntax->datum #'field-name))])
-		     (with-syntax ([accessor-name
-				    (datum->syntax k (string->symbol (string-append prefix "-" name)))]
-				   [mutator-name
-				    (datum->syntax k (string->symbol (string-append prefix "-" name "-set!")))])
-		       #'(mutable field-name accessor-name mutator-name)))]
-		  [field-name
-		   (identifier? #'field-name)
-		   (let ([name (symbol->string (syntax->datum #'field-name))])
-		     (with-syntax ([accessor-name
-				    (datum->syntax k (string->symbol (string-append prefix "-" name)))])
-		       #'(immutable field-name accessor-name)))]
-		  [_ field-spec])))
+                (define f
+                  (lambda (fs)
+		    (syntax-case fs (immutable mutable)
+		      [(immutable field-name)
+		       (identifier? #'field-name)
+		       (let ([name (symbol->string (syntax->datum #'field-name))])
+		         (with-syntax ([accessor-name
+				        (datum->syntax k (string->symbol (string-append prefix name)))])
+		           #'(immutable field-name accessor-name)))]
+		      [(mutable field-name)
+		       (identifier? #'field-name)
+		       (let ([name (symbol->string (syntax->datum #'field-name))])
+		         (with-syntax ([accessor-name
+				        (datum->syntax k (string->symbol (string-append prefix "-" name)))]
+				       [mutator-name
+				        (datum->syntax k (string->symbol (string-append prefix "-" name "-set!")))])
+		           #'(mutable field-name accessor-name mutator-name)))]
+		      [field-name
+		       (identifier? #'field-name)
+		       (let ([name (symbol->string (syntax->datum #'field-name))])
+		         (with-syntax ([accessor-name
+				        (datum->syntax k (string->symbol (string-append prefix "-" name)))])
+		           #'(immutable field-name accessor-name)))]
+		      [_ fs])))
+                (syntax-case field-spec (applicable)
+                  [(applicable fs)
+                   (if applicand
+                       (syntax-violation who "multiple applicable fields" stx field-spec)
+                       (with-syntax ([fs (f #'fs)])
+                         (with-syntax ([(_ _ accessor-name . _) #'fs])
+                           (set! applicand #'accessor-name)
+                           #'fs)))]
+                  [(applicable . fs)
+                   (if applicand
+                       (syntax-violation who "multiple applicable fields" stx field-spec)
+                       (with-syntax ([fs (f #'fs)])
+                         (with-syntax ([(_ _ accessor-name . _) #'fs])
+                           (set! applicand #'accessor-name)
+                           #'fs)))]
+                  [fs (f #'fs)])))
             (let f ([clauses clauses] [transformed '()] [gen #f])
               (if (null? clauses)
                   transformed
@@ -422,7 +441,7 @@
                     (define g
                       (lambda (clause)
                         (f clauses (cons clause transformed) gen)))
-                    (syntax-case clause (fields parent parent-rtd nongenerative generative)
+                    (syntax-case clause (fields parent parent-rtd nongenerative generative applicable)
 	              [(fields field-spec ...)
 	               (with-syntax ([(field-spec ...) (map update-field-spec #'(field-spec ...))])
 		         (g #'((fields field-spec ...))))]
@@ -459,8 +478,9 @@
 	   (with-syntax ([(k record-name name-spec) (update-name-spec #'name-spec)])
 	     (define prefix (symbol->string (syntax->datum #'record-name)))
 	     (with-syntax ([((def ... record-clause) ...)
-                            (update-record-clauses #'k prefix #'(record-clause ...))])
-	       #'(define-record-type-aux record-name (def ... ...) parent-rd name-spec record-clause ...)))]
+                            (update-record-clauses #'k prefix #'(record-clause ...))]
+                           [applicand applicand])
+	       #'(define-record-type-aux record-name (def ... ...) parent-rd name-spec applicand record-clause ...)))]
           [_
            (syntax-violation who "invalid record-type definition" stx)]))))
 
@@ -480,9 +500,18 @@
 
   (define-syntax define-record-type-aux
     (syntax-rules ()
-      [(_ record-name () parent-rd (tmp-name constructor-name predicate-name) record-clause ...)
-       (define-record-type-aux record-name ((define parent-rd #f)) parent-rd (tmp-name constructor-name predicate-name) record-clause ...)]
-      [(_ record-name (def ...) parent-rd (tmp-name constructor-name predicate-name) record-clause ...)
+      [(_ record-name () parent-rd (tmp-name constructor-name predicate-name) applicand record-clause ...)
+       (define-record-type-aux record-name ((define parent-rd #f)) parent-rd (tmp-name constructor-name predicate-name) applicand record-clause ...)]
+      [(_ record-name (def ...) parent-rd (tmp-name constructor-name predicate-name) #f record-clause ...)
+       (begin
+	 def ...
+	 (rnrs:define-record-type (tmp-name constructor-name predicate-name) record-clause ...)
+	 (define rtd (register-rtd! (rnrs:record-type-descriptor tmp-name)))
+	 (define cd (rnrs:record-constructor-descriptor tmp-name))
+	 (define rd (make-rd rtd cd parent-rd))
+         (define-rn record-name rd)
+	 (define-property record-name rnrs:record-name #'tmp-name))]
+      [(_ record-name (def ...) parent-rd (tmp-name constructor-name predicate-name) applicand record-clause ...)
        (begin
 	 def ...
 	 (rnrs:define-record-type (tmp-name constructor-name predicate-name) record-clause ...)

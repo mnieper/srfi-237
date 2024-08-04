@@ -191,6 +191,12 @@
 
 (assert (eqv? #f (record-uid->rtd 'norecord)))
 
+;;; Applicable records
+
+(define-record-type arec
+  (generative)
+  (fields (applicable proc)))
+
 ;; Local Variables:
 ;; mode: scheme
 ;; End:
